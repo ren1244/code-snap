@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>掃描器</title>
+</head>
+<body>
+    <style>
+        .hide {
+            display: none;
+        }
+    </style>
+
+    <div id="app"></div>
+    <template id="tpl">
+        <button v-if="!stream" @click="scanByCamera">相機掃描</button>
+        <button v-if="!stream" @click="scanImage">掃描圖片</button>
+        <button v-if="stream" @click="closeCamera">關閉相機</button>
+        <div v-if="format">
+            <p>格式：<span>{{format}}</span></p>
+            <p>內文：<span>{{text}}</span></p>
+            <p>位元組資料：<span>{{hex}}</span></p>
+            <div v-if="pattern">
+                <div v-html="svg"></div>
+                <button @click="downloadSvg">下載 SVG</button>
+                <button @click="downloadPng">下載 PNG</button>
+            </div>
+        </div>
+        <div v-if="stream">
+            <video autoplay playsinline muted style="display: none;"></video>
+            <canvas></canvas>
+        </div>
+    </template>
+    <script src="scan.js" type="module"></script>
+    <!-- <script src="dist/scan.bundle.js"></script> -->
+</body>
+</html>
