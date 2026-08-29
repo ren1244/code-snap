@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>掃描器</title>
+    <title>條碼掃描 ＆ 複製</title>
 </head>
 <body>
     <style>
@@ -40,11 +40,11 @@
             <button v-if="!stream" @click="scanImage">開啟圖片</button>
             <button v-if="!stream" @click="scanClipboard">從剪貼簿</button>
             <button v-if="stream" @click="closeCamera">關閉相機</button>
+            <a href="https://github.com/ren1244/code-snap" style="margin-left: 0.5em;">使用說明請參考 github </a>
         </div>
         <div v-if="format">
             <p>格式：<span>{{format}}</span></p>
             <p>內文：<span>{{text}}</span></p>
-            <!-- <p>位元組資料：<span>{{hex}}</span></p> -->
             <div v-if="pattern">
                 <div v-html="svg"></div>
                 <button @click="downloadSvg">下載 SVG</button>
