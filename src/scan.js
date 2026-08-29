@@ -1,12 +1,6 @@
-import { BrowserMultiFormatReader, BarcodeFormat } from 'https://cdn.jsdelivr.net/npm/@zxing/browser@0.2.1/+esm';
-import { createApp } from 'https://unpkg.com/vue@3/dist/vue.esm-browser.js';
-
-/**
- * 本地開發可改用
- */
-// import { BrowserMultiFormatReader, BarcodeFormat } from './third-party/zxing/browser.js';
-// import { createApp } from './third-party/vue.esm-browser.js';
-
+import { createApp } from '../node_modules/vue/dist/vue.esm-browser.prod.js';
+import { CanvasMultiFormatDecoder, BarcodeFormat, ResultMetadataType } from './decoder.js';
+import { QrCode } from '@ren1244/qr-styling';
 
 console.warn = () => { };
 
@@ -114,11 +108,46 @@ const code39 = (() => {
     }
 })();
 
+if (!Uint8Array.prototype.toHex) {
+    const hexStr = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'];
+    Uint8Array.prototype.toHex = function () {
+        let str = '';
+        for (let x of this) {
+            str += hexStr[x >>> 4 & 15] + hexStr[x & 15];
+        }
+        return str;
+    }
+}
+
+function blobToImg(blob) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            resolve(img);
+        };
+        img.onerror = (e) => {
+            URL.revokeObjectURL(url);
+            reject(`無法讀取圖片，請改用其他方式`);
+        }
+        img.src = url;
+    });
+}
+
+function imgToCanvas(img) {
+    const cvs = document.createElement('canvas');
+    cvs.width = img.width;
+    cvs.height = img.height;
+    const ctx = cvs.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    return cvs;
+}
 
 createApp({
     data() {
         return {
-            reader: new BrowserMultiFormatReader(),
+            reader: null,
             format: '',
             text: '',
             hex: '',
@@ -126,10 +155,18 @@ createApp({
             stream: null,
             videoElement: null,
             canvasElement: null,
+            ctx: null,
+            cropX: 0,
+            cropY: 0,
+            cropW: 0,
+            cropH: 0,
+
             animationId: null,
             timestamp: 0,
             delay: 125,
             pattern: '',
+
+            errorMsg: '',
         };
     },
     computed: {
@@ -149,18 +186,47 @@ createApp({
                     x += w;
                 }
                 return { x: 0, y: 0, width: x, height: 1, data: d.join(' ') };
+            } else if (this.pattern instanceof QrCode) {
+                const sty = this.pattern.styling('square');
+                const d = sty.getD();
+                const bbx = sty.getBBox();
+                bbx.data = d;
+                return bbx;
             }
             return null;
         },
         svg() {
             if (this.pathD !== null) {
                 const { x, y, width: w, height: h, data: d } = this.pathD;
-                return `<svg width="240px" height="80px" viewBox="${x} ${y} ${w} ${h}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><path d="${d}" fill="#000" /></svg>`;
+                const result = [];
+                if (this.pattern instanceof QrCode) {
+                    result.push(`<svg width="240px" height="240px" viewBox="${x - 4} ${y - 4} ${w + 8} ${h + 8}" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">`);
+                    result.push(`<path d="M ${x - 4} ${y - 4} h ${w + 8} v ${h + 8} h ${-w - 8} Z" fill="#fff" />`);
+                    result.push(`<path d="${d}" fill="#000" />`);
+                    result.push(`</svg>`);
+                } else {
+                    const w2 = parseFloat((2400 / w * 2 + 240).toFixed(5));
+                    const h2 = parseFloat((1200 / w * 2 + 80).toFixed(5));
+                    const a = parseFloat((240 / w).toFixed(5));
+                    const b = parseFloat((80 / h).toFixed(5));
+                    const e = parseFloat(((2400 - 240 * x) / w).toFixed(5));
+                    const f = parseFloat((1200 / w - 80 * y / h).toFixed(5));
+                    result.push(`<svg width="${w2}px" height="${h2}px" xmlns="http://www.w3.org/2000/svg">`);
+                    result.push(`<path d="M 0 0 h ${w2} v ${h2} h -${w2} Z" fill="#fff" />`);
+                    result.push(`<g transform="matrix(${a} 0 0 ${b} ${e} ${f})">`);
+                    result.push(`<path d="${d}" fill="#000" />`);
+                    result.push(`</g>`);
+                    result.push(`</svg>`);
+                }
+                return result.join('\n');
             }
             return '';
-        }
+        },
     },
     methods: {
+        clearContent() {
+            this.format = this.text = this.hex = this.errorMsg = '';
+        },
         showDownload(result) {
             this.format = Number.isInteger(result.format) ? BarcodeFormat[result.format] : '';
             this.text = result.text || '';
@@ -173,70 +239,86 @@ createApp({
                 case 'CODE_128':
                     this.pattern = code128(this.hex);
                     break;
+                case 'QR_CODE':
+                    const qrInfo = result.resultMetadata.get(ResultMetadataType.OTHER);
+                    this.pattern = new QrCode(result.rawBytes, {
+                        errorCorrection: qrInfo.ecLevel,
+                        version: qrInfo.version,
+                        mask: qrInfo.dataMask
+                    });
+                    break;
                 default:
                     this.pattern = null;
             }
         },
         async scanImage() {
-            this.format = this.text = this.hex = '';
+            this.clearContent();
             new Promise((resolve, reject) => {
-                // 1. 動態建立一個隱藏的檔案輸入框
                 const input = document.createElement('input');
                 input.type = 'file';
-                input.accept = 'image/*'; // 限制只能選擇圖片檔案
-
-                // 2. 監聽使用者選擇檔案的事件
+                input.accept = 'image/*';
                 input.onchange = (event) => {
                     const file = event.target.files[0];
-
                     if (!file) {
                         reject(new Error('未選擇任何檔案'));
                         return;
                     }
-
-                    // 3. 使用 FileReader 讀取圖片檔案
-                    const reader = new FileReader();
-
-                    reader.onload = (e) => {
-                        const base64Data = e.target.result; // 取得 Base64 字串
-
-                        // 4. 建立 Image 物件並載入資料
-                        const img = new Image();
-                        img.onload = () => {
-                            resolve(img); // 圖片載入完成，回傳 Image 物件
-                        };
-                        img.onerror = (error) => {
-                            reject(new Error('圖片載入失敗', { cause: error }));
-                        };
-                        img.src = base64Data;
-                    };
-
-                    reader.onerror = (error) => {
-                        reject(new Error('檔案讀取失敗', { cause: error }));
-                    };
-
-                    // 開始讀取檔案
-                    reader.readAsDataURL(file);
+                    resolve(file);
                 };
-
-                // 5. 觸發點擊事件，彈出檔案選擇視窗
                 input.click();
-            }).then(img => {
-                return this.reader.decodeFromImageElement(img);
-            }).then(this.showDownload).catch(e => {
-                console.error(e);
+            }).then(blobToImg).then(imgToCanvas).then(cvs => {
+                const decoder = new CanvasMultiFormatDecoder(cvs);
+                this.showDownload(decoder.decode(0, 0, cvs.width, cvs.height));
+            }).catch(e => {
+                this.errorMsg = e.toString();
+                this.showDownload({});
+            });
+        },
+        async scanClipboard() {
+            this.clearContent();
+            if (!navigator.clipboard || !navigator.clipboard.read) {
+                this.errorMsg = '不支援剪貼簿';
+                console.log('不支援剪貼簿');
+                return;
+            }
+            return navigator.clipboard.read().then(clipboardItems => {
+                for (const item of clipboardItems) {
+                    const imageType = item.types.find(type => type.startsWith('image/'));
+                    if (imageType) {
+                        return item.getType(imageType);
+                    }
+                }
+                return Promise.reject('剪貼簿找不到圖片');
+            }).then(blobToImg).then(imgToCanvas).then(cvs => {
+                const decoder = new CanvasMultiFormatDecoder(cvs);
+                this.showDownload(decoder.decode(0, 0, cvs.width, cvs.height));
+            }).catch(e => {
+                this.errorMsg = e.toString();
                 this.showDownload({});
             });
         },
         async scanByCamera() {
-            this.format = this.text = this.hex = '';
+            this.clearContent();
             this.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
             await Promise.resolve();
             this.videoElement = document.querySelector('video');
             this.canvasElement = document.querySelector('canvas');
             this.videoElement.addEventListener('loadedmetadata', () => {
-                this.canvasElement.width = this.videoElement.videoWidth;
-                this.canvasElement.height = this.videoElement.videoHeight;
+                const { videoWidth: w, videoHeight: h } = this.videoElement;
+
+                // 設定 canvas
+                this.canvasElement.width = w;
+                this.canvasElement.height = h;
+                this.ctx = this.canvasElement.getContext('2d', { willReadFrequently: true });
+                this.reader = new CanvasMultiFormatDecoder(this.canvasElement);
+
+                // 設定裁切區域
+                this.cropW = this.cropH = Math.min(w * 2 / 3, h * 0.8) >>> 0;
+                this.cropX = w - this.cropW >>> 1;
+                this.cropY = h - this.cropH >>> 1;
+                this.ctx.strokeStyle = '#00FF00';
+                this.ctx.strokeWidth = '4px';
+
                 this.videoElement.play();
                 this.animationId = requestAnimationFrame(() => {
                     this._scanFromVideo();
@@ -253,10 +335,10 @@ createApp({
                 return;
             }
             this.timestamp = t;
-            const ctx = this.canvasElement.getContext('2d', { willReadFrequently: true });
-            ctx.drawImage(this.videoElement, 0, 0, this.canvasElement.width, this.canvasElement.height);
+            this.ctx.drawImage(this.videoElement, 0, 0, this.canvasElement.width, this.canvasElement.height);
+            this.ctx.strokeRect(this.cropX - 2, this.cropY - 2, this.cropW + 4, this.cropH + 4);
             try {
-                const result = await this.reader.decodeFromCanvas(this.canvasElement);
+                const result = await this.reader.decode(this.cropX, this.cropY, this.cropW, this.cropH);
                 this.closeCamera();
                 this.showDownload(result);
             } catch (e) {
@@ -278,6 +360,7 @@ createApp({
                 // 3. 將變數清空，避免記憶體洩漏或重複關閉
                 this.stream = null;
                 this.videoElement = null;
+                this.ctx = null;
                 this.canvasElement = null;
             }
             if (this.animationId) {
@@ -303,18 +386,39 @@ createApp({
             );
         },
         downloadPng() {
-            const distW = 540;
-            const distH = 180;
             const { x, y, width: w, height: h, data: d } = this.pathD;
             const cvs = document.createElement('canvas');
+            let scaleX;
+            let scaleY;
+            let distW;
+            let distH;
+            let offsetX;
+            let offsetY;
+            if (this.pattern instanceof QrCode) {
+                const sz = this.pattern.size;
+                const scale = Math.ceil(532 / sz);
+                scaleX = sz * scale / w;
+                scaleY = sz * scale / h;
+                distW = Math.round(scale * (sz + 8));
+                distH = Math.round(scale * (sz + 8));
+                offsetX = Math.round(scale * 4) - x * scaleX;
+                offsetY = Math.round(scale * 4) - y * scaleY;
+            } else {
+                scaleX = Math.ceil(532 / w);
+                scaleY = Math.round(w * scaleX / 3) / h;
+                distW = Math.round(scaleX * (w + 20));
+                distH = Math.round(scaleY * h + scaleX * 10);
+                offsetX = Math.round(scaleX * 10) - x * scaleX;
+                offsetY = Math.round(scaleX * 5) - y * scaleY;
+            }
             cvs.width = distW;
             cvs.height = distH;
             const ctx = cvs.getContext('2d');
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, distW, distW);
             const path = new Path2D(d);
             ctx.fillStyle = '#000';
-            const scaleX = distW / w;
-            const scaleY = distH / h;
-            ctx.setTransform(scaleX, 0, 0, scaleY, -x * scaleX, -y * scaleY);
+            ctx.setTransform(scaleX, 0, 0, scaleY, offsetX, offsetY);
             ctx.fill(path);
             cvs.toBlob((blob) => {
                 this._downloadFile(this.text || 'barcode.png', blob, 'image/png');

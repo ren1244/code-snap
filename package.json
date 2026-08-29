@@ -1,0 +1,19 @@
+{
+  "type": "module",
+  "scripts": {
+    "build": "npm run clean && rollup -c && shx cp src/index.html dist",
+    "clean": "shx rm -rf dist"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^29.0.3",
+    "@rollup/plugin-node-resolve": "^16.0.3",
+    "@rollup/plugin-terser": "^1.0.0",
+    "rollup": "^4.62.4",
+    "shx": "^0.4.0"
+  },
+  "dependencies": {
+    "@ren1244/qr-styling": "github:ren1244/qr-styling#raw-bytes",
+    "@zxing/library": "github:ren1244/zxing-library#qr-info",
+    "vue": "^3.5.41"
+  }
+}
