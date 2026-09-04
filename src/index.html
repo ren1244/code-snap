@@ -1,62 +1,136 @@
 <!DOCTYPE html>
 <html lang="zh-Hant-TW">
+
 <head>
     <meta charset="UTF-8">
     <meta http-equiv="X-UA-Compatible" content="IE=edge">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>條碼掃描 ＆ 複製</title>
-</head>
-<body>
+    <!-- 引入 Bulma CSS 與 FontAwesome 圖示 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        html, body {
-            width: 100%;
-            height: 100%;
+        body {
+            background-color: #f7f9fa;
+            min-height: 100vh;
         }
-        html, body, div {
-            padding: 0px;
-            margin: 0px;
-        }
-        #app {
-            display: flex;
-            flex-direction: column;
-        }
-        .row {
-            display: flex;
-        }
-        
+
         .hide {
             display: none;
         }
 
         canvas {
             max-width: 100%;
-            max-height: 100%;
+            height: auto;
+            border-radius: 6px;
         }
     </style>
-    <div id="app"></div>
-    <template id="tpl">
-        <div class="row">
-            <button v-if="!stream" @click="scanByCamera">開啟相機</button>
-            <button v-if="!stream" @click="scanImage">開啟圖片</button>
-            <button v-if="!stream" @click="scanClipboard">從剪貼簿</button>
-            <button v-if="stream" @click="closeCamera">關閉相機</button>
-            <a href="https://github.com/ren1244/code-snap" style="margin-left: 0.5em;">使用說明請參考 github </a>
+</head>
+
+<body>
+    <section class="section">
+        <div class="container" style="max-width: 640px;">
+            <!-- 標題區 -->
+            <div class="has-text-centered mb-5">
+                <h1 class="title is-3 has-text-grey-dark">條碼掃描 ＆ 複製</h1>
+                <p class="subtitle is-6">
+                    <a href="https://github.com/ren1244/code-snap" target="_blank" class="has-text-info">
+                        <span class="icon"><i class="fab fa-github"></i></span>
+                        <span>使用說明請參考 GitHub</span>
+                    </a>
+                </p>
+            </div>
+
+            <!-- 主應用卡片區 -->
+            <div id="app"></div>
         </div>
-        <div v-if="format">
-            <p>格式：<span>{{format}}</span></p>
-            <p>內文：<span>{{text}}</span></p>
-            <div v-if="pattern">
-                <div v-html="svg"></div>
-                <button @click="downloadSvg">下載 SVG</button>
-                <button @click="downloadPng">下載 PNG</button>
+    </section>
+
+    <template id="tpl">
+        <div class="box">
+            <!-- 按鈕操作區 -->
+            <div class="buttons is-centered mb-4">
+                <button v-if="!stream" @click="scanByCamera" class="button is-link is-light">
+                    <span class="icon"><i class="fas fa-camera"></i></span>
+                    <span>開啟相機</span>
+                </button>
+                <button v-if="!stream" @click="scanImage" class="button is-info is-light">
+                    <span class="icon"><i class="fas fa-image"></i></span>
+                    <span>開啟圖片</span>
+                </button>
+                <button v-if="!stream" @click="scanClipboard" class="button is-primary is-light">
+                    <span class="icon"><i class="fas fa-paste"></i></span>
+                    <span>從剪貼簿</span>
+                </button>
+                <button v-if="stream" @click="closeCamera" class="button is-danger is-light">
+                    <span class="icon"><i class="fas fa-video-slash"></i></span>
+                    <span>關閉相機</span>
+                </button>
+            </div>
+
+            <!-- 錯誤訊息提示 -->
+            <div v-if="errorMsg" class="notification is-danger is-light p-3 my-3">
+                <p class="is-size-7">{{errorMsg}}</p>
+            </div>
+
+            <!-- 掃描結果區 -->
+            <div v-if="format" class="content notification is-light p-4 mb-4">
+                <p class="mb-1"><strong>格式：</strong><span class="tag is-info is-light ml-1">{{format}}</span></p>
+                <!-- 內文標題與複製按鈕列 -->
+                <div class="is-flex is-justify-content-space-between is-align-items-center mb-1">
+                    <strong>內文：</strong>
+                    <button @click="copyText" :disabled="isCopied" class="button is-small"
+                        :class="isCopied ? 'is-success' : 'is-info is-outlined'">
+                        <span class="icon">
+                            <i :class="isCopied ? 'fas fa-check' : 'fas fa-copy'"></i>
+                        </span>
+                        <span>{{ isCopied ? '已複製！' : '複製內文' }}</span>
+                    </button>
+                </div>
+
+                <!-- 內文顯示區 -->
+                <pre class="has-background-white has-text-link p-3 mb-3"
+                    style="overflow-x: auto; white-space: pre;">{{text}}</pre>
+
+                <div v-if="pattern" class="pt-3 border-top">
+                    <!-- 1. 預覽 Label 與詳細資訊標籤列 -->
+                    <div class="is-flex is-justify-content-space-between is-align-items-center mb-2">
+                        <strong>預覽：</strong>
+                    
+                        <!-- 弱化的輔助細節文字 -->
+                        <div class="is-size-7 has-text-grey-light has-background-light px-2 py-1" style="border-radius: 4px;">
+                            {{detail}}
+                        </div>
+                    </div>
+
+                    <!-- 2. SVG 圖像顯示區 (可加上白底邊框卡片感) -->
+                    <div class="has-text-centered p-3 mb-3 has-background-white rounded-border">
+                        <div v-html="svg"></div>
+                    </div>
+
+                    <!-- 3. 下載按鈕區 -->
+                    <div class="buttons is-centered">
+                        <button @click="downloadSvg" class="button is-small is-outlined is-link">
+                            <span class="icon"><i class="fas fa-file-code"></i></span>
+                            <span>下載 SVG</span>
+                        </button>
+                        <button @click="downloadPng" class="button is-small is-outlined is-info">
+                            <span class="icon"><i class="fas fa-file-image"></i></span>
+                            <span>下載 PNG</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 相機/畫布預覽區 -->
+            <div class="has-text-centered" v-if="stream">
+                <video autoplay playsinline muted style="display: none;"></video>
+                <canvas class="box p-1"></canvas>
             </div>
         </div>
-        <div class="row" v-if="stream">
-            <video autoplay playsinline muted style="display: none;"></video>
-            <canvas></canvas>
-        </div>
-        <div>{{errorMsg}}</div>
     </template>
+
     <script src="./scan.bundle.js"></script>
 </body>
+
 </html>

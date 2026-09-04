@@ -151,6 +151,7 @@ createApp({
             format: '',
             text: '',
             hex: '',
+            detail: '',
 
             stream: null,
             videoElement: null,
@@ -167,6 +168,7 @@ createApp({
             pattern: '',
 
             errorMsg: '',
+            isCopied: false,
         };
     },
     computed: {
@@ -225,7 +227,7 @@ createApp({
     },
     methods: {
         clearContent() {
-            this.format = this.text = this.hex = this.errorMsg = '';
+            this.format = this.text = this.hex = this.errorMsg = this.detail = '';
         },
         showDownload(result) {
             this.format = Number.isInteger(result.format) ? BarcodeFormat[result.format] : '';
@@ -246,6 +248,7 @@ createApp({
                         version: qrInfo.version,
                         mask: qrInfo.dataMask
                     });
+                    this.detail = `版本：${qrInfo.version} / 容錯率：${qrInfo.ecLevel} / 遮罩：${qrInfo.dataMask}`;
                     break;
                 default:
                     this.pattern = null;
@@ -423,6 +426,15 @@ createApp({
             cvs.toBlob((blob) => {
                 this._downloadFile(this.text || 'barcode.png', blob, 'image/png');
             }, 'image/png');
+        },
+        async copyText() {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(this.text);
+                this.isCopied = true;
+                setTimeout(() => {
+                    this.isCopied = false;
+                }, 1500);
+            }
         }
     },
     template: '#tpl'
