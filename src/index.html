@@ -14,15 +14,33 @@
             background-color: #f7f9fa;
             min-height: 100vh;
         }
-
+    
         .hide {
             display: none;
         }
-
+    
         canvas {
             max-width: 100%;
             height: auto;
             border-radius: 6px;
+        }
+    
+        /* === 針對行動裝置優化寬度與留邊 === */
+        @media screen and (max-width: 768px) {
+            /* 1. 減少外層 Section 的左右 Padding (原本預設是 1.5rem) */
+            section.section {
+                padding: 1rem 0.5rem;
+            }
+    
+            /* 2. 讓卡片容器在手機上貼近兩側，最大化利用空間 */
+            .container {
+                width: 100%;
+            }
+    
+            /* 3. 縮減白色卡片 (box) 內部的 Padding (原本預設是 1.25rem) */
+            .box {
+                padding: 1.25rem 0rem;
+            }
         }
     </style>
 </head>

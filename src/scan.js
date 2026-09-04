@@ -371,19 +371,33 @@ createApp({
                 this.animationId = null;
             }
         },
-        async _downloadFile(filename, content, mime) {
+        async _downloadFile(ext, content, mime) {
+            function getFormattedNow() {
+                const now = new Date();
+
+                const pad = (num) => String(num).padStart(2, '0');
+
+                const year = now.getFullYear();
+                const month = pad(now.getMonth() + 1);
+                const day = pad(now.getDate());
+                const hours = pad(now.getHours());
+                const minutes = pad(now.getMinutes());
+                const seconds = pad(now.getSeconds());
+
+                return `${year}${month}${day}T${hours}${minutes}${seconds}`;
+            }
             const blob = content instanceof Blob ? content : new Blob(content, { type: mime });
             const url = URL.createObjectURL(blob);
             const link = document.createElement('a');
             link.href = url;
-            link.download = filename;
+            link.download = `${this.format}_${getFormattedNow()}.${ext}`;
             link.click();
             await Promise.resolve();
             URL.revokeObjectURL(url);
         },
         downloadSvg() {
             this._downloadFile(
-                this.text || 'barcode.svg',
+                'svg',
                 ['<?xml version="1.0" encoding="UTF-8"?>', this.svg],
                 'image/svg+xml'
             );
@@ -424,7 +438,7 @@ createApp({
             ctx.setTransform(scaleX, 0, 0, scaleY, offsetX, offsetY);
             ctx.fill(path);
             cvs.toBlob((blob) => {
-                this._downloadFile(this.text || 'barcode.png', blob, 'image/png');
+                this._downloadFile('png', blob, 'image/png');
             }, 'image/png');
         },
         async copyText() {
